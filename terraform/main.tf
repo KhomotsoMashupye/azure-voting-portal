@@ -25,6 +25,11 @@ provider "azurerm" {
 }
 data "azurerm_client_config" "current" {}
 
+data "azurerm_network_service_tags" "afm" {
+  location = var.location
+  service  = "AzureFrontDoor.Backend"
+}
+
 resource "azurerm_resource_group" "main" {
   name     = var.resource_group_name
   location = var.location
@@ -124,6 +129,11 @@ resource "azurerm_postgresql_flexible_server" "main" {
   administrator_password = random_password.db_password.result
   private_dns_zone_id = azurerm_private_dns_zone.postgres.id
   storage_mb            = 5120
+  maintenance_window {
+    day_of_week  = 0            
+    start_hour   = 2           
+    start_minute = 0
+  }
   backup_retention_days = 7
   geo_redundant_backup  = "Disabled"
 }
@@ -154,6 +164,21 @@ resource "azurerm_container_app" "voting_system" {
   ingress {
     external_enabled = true
     target_port      = 80 
+    
+    dynamic "ip_security_restriction" {
+      for_each = data.azurerm_network_service_tags.afm.ipv4_cidrs
+      content {
+        name             = "AllowFrontDoor"
+        action           = "Allow"
+        ip_address_range = ip_security_restriction.value
+      }
+    }
+
+    traffic_weight {
+      percentage      = 100
+      latest_revision = true
+    }
+  }
     traffic_weight {
       percentage      = 100
       latest_revision = true
@@ -161,6 +186,14 @@ resource "azurerm_container_app" "voting_system" {
   }
 
   template {
+
+    min_replicas = 1
+    max_replicas = 10
+
+    http_scale_rule {
+      name                         = "http-scaling-rule"
+      concurrent_requests          = "100"
+    }
 
     container {
       name   = "frontend"
@@ -189,7 +222,7 @@ resource "azurerm_container_app" "voting_system" {
         name        = "DB_PASSWORD"
         secret_name = "db-password-secret"
       }
-    }
+     }
     secret {
       name                = "db-password-secret"
       key_vault_secret_id = azurerm_key_vault_secret.db_password.id
@@ -306,7 +339,7 @@ resource "azurerm_cdn_frontdoor_endpoint" "main" {
   cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
 }
 
-# The Origin (Your Container App)
+# The Origin (Container App)
 resource "azurerm_cdn_frontdoor_origin" "container_app" {
   name                          = "container-app-origin"
   cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.main.id
