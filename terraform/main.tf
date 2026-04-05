@@ -48,3 +48,39 @@ resource "azurerm_subnet" "private" {
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.private_subnet_cidr]
 }
+
+resource "azurerm_container_registry" "main" {
+  name                     = "${var.project_name}acr"
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  sku                      = "Basic"
+  admin_enabled            = true
+}
+
+resource "azurerm_user_assigned_identity" "main" {
+  name                = "${var.project_name}-identity"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+}
+
+resource "azurerm_key_vault" "main" {
+  name                        = "${var.project_name}-kv"
+  resource_group_name         = azurerm_resource_group.main.name
+  location                    = azurerm_resource_group.main.location
+  tenant_id                   = data.azurerm_client_config.current.tenant_id
+  sku_name                    = "standard"
+  soft_delete_enabled         = true
+  purge_protection_enabled    = false
+  enable_rbac_authorization   = true
+}
+
+resource "azurerm_key_vault_secret" "db_password" {
+  name         = "db-password"
+  value        = random_password.db_password.result
+  key_vault_id = azurerm_key_vault.main.id
+}
+
+resource "random_password" "db_password" {
+  length  = 16
+  special = true
+}
