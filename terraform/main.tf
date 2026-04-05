@@ -205,3 +205,73 @@ resource "azurerm_role_assignment" "kv_secrets_user" {
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.main.principal_id
 }
+resource "azurerm_storage_account" "assets" {
+  name                     = "${lower(var.project_name)}assets${random_string.suffix.result}"
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS" # Local Redundancy
+
+  network_rules {
+    default_action             = "Deny"
+    virtual_network_subnet_ids = [azurerm_subnet.private.id]
+    bypass                     = ["AzureServices"]
+  }
+}
+
+resource "azurerm_storage_container" "media" {
+  name                  = "media"
+  storage_account_name  = azurerm_storage_account.assets.name
+  container_access_type = "private"
+}
+
+resource "random_string" "suffix" {
+  length  = 6
+  special = false
+  upper   = false
+}
+
+resource "azurerm_servicebus_namespace" "main" {
+  name                = "${var.project_name}-bus"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  sku                 = "Standard"
+}
+
+resource "azurerm_servicebus_queue" "votes" {
+  name         = "vote-queue"
+  namespace_id = azurerm_servicebus_namespace.main.id
+
+  enable_partitioning = true
+}
+
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "${var.project_name}-logs"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+resource "azurerm_application_insights" "main" {
+  name                = "${var.project_name}-insights"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  workspace_id        = azurerm_log_analytics_workspace.main.id
+  application_type    = "web"
+}
+# Permission for the Container App to read/write files in Blob Storage
+
+resource "azurerm_role_assignment" "storage_contributor" {
+  scope                = azurerm_storage_account.assets.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.main.principal_id
+}
+
+# Permission for the Container App to send/receive messages on the Queue
+
+resource "azurerm_role_assignment" "servicebus_data_owner" {
+  scope                = azurerm_servicebus_namespace.main.id
+  role_definition_name = "Azure Service Bus Data Owner"
+  principal_id         = azurerm_user_assigned_identity.main.principal_id
+}
