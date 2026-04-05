@@ -23,6 +23,8 @@ terraform {
 provider "azurerm" {
   features {}
 }
+data "azurerm_client_config" "current" {}
+
 resource "azurerm_resource_group" "main" {
   name     = var.resource_group_name
   location = var.location
@@ -65,6 +67,12 @@ resource "azurerm_container_registry" "main" {
   admin_enabled            = true
 }
 
+resource "azurerm_role_assignment" "acr_pull" {
+  scope                = azurerm_container_registry.main.id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.main.principal_id
+}
+
 resource "azurerm_user_assigned_identity" "main" {
   name                = "${var.project_name}-identity"
   resource_group_name = azurerm_resource_group.main.name
@@ -93,6 +101,18 @@ resource "random_password" "db_password" {
   special = true
 }
 
+resource "azurerm_private_dns_zone" "postgres" {
+  name                = "${var.project_name}.postgres.database.azure.com"
+  resource_group_name = azurerm_resource_group.main.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "main" {
+  name                  = "db-vnet-link"
+  private_dns_zone_name = azurerm_private_dns_zone.postgres.name
+  virtual_network_name  = azurerm_virtual_network.main.id
+  resource_group_name   = azurerm_resource_group.main.name
+}
+
 resource "azurerm_postgresql_flexible_server" "main" {
   name                   = "${var.project_name}-db"
   resource_group_name    = azurerm_resource_group.main.name
@@ -102,7 +122,7 @@ resource "azurerm_postgresql_flexible_server" "main" {
   delegated_subnet_id    = azurerm_subnet.private.id
   administrator_login    = var.db_username
   administrator_password = random_password.db_password.result
-
+  private_dns_zone_id = azurerm_private_dns_zone.postgres.id
   storage_mb            = 5120
   backup_retention_days = 7
   geo_redundant_backup  = "Disabled"
@@ -115,69 +135,73 @@ resource "azurerm_container_app_environment" "main" {
   dapr_enabled        = false
 }
 
-resource "azurerm_container_app" "backend" {
-  name                        = "${var.project_name}-backend"
+resource "azurerm_container_app" "voting_system" {
+  name                         = "${var.project_name}-app"
   container_app_environment_id = azurerm_container_app_environment.main.id
   resource_group_name          = azurerm_resource_group.main.name
   location                     = azurerm_resource_group.main.location
   revision_mode                = "Single"
 
   identity {
-    type = "UserAssigned"
+    type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.main.id]
   }
-
-  container {
-    name   = "backend"
-    image  = "${azurerm_container_registry.main.login_server}/backend:latest"
-    cpu    = 0.5
-    memory = "1Gi"
-
-    env {
-      name  = "DB_PASSWORD"
-      secret_ref = azurerm_key_vault_secret.db_password.name
-    }
-
-    env {
-      name  = "DB_HOST"
-      value = azurerm_postgresql_flexible_server.main.fqdn
-    }
-
-    ports {
-      port     = 3000
-      protocol = "TCP"
-    }
-  }
-
-  traffic {
-    latest_revision_weight = 100
-  }
-}
-resource "azurerm_container_app" "frontend" {
-  name                         = "${var.project_name}-frontend"
-  container_app_environment_id = azurerm_container_app_environment.main.id
-  resource_group_name          = azurerm_resource_group.main.name
-  location                     = azurerm_resource_group.main.location
-  revision_mode                = "Single"
-
-  container {
-    name   = "frontend"
-    image  = "${azurerm_container_registry.main.login_server}/frontend:latest"
-    cpu    = 0.25
-    memory = "0.5Gi"
-
-    ports {
-      port     = 80
-      protocol = "TCP"
-    }
+  registry {
+    server   = azurerm_container_registry.main.login_server
+    identity = azurerm_user_assigned_identity.main.id
   }
 
   ingress {
     external_enabled = true
-    target_port      = 80
+    target_port      = 80 
+    traffic_weight {
+      percentage      = 100
+      latest_revision = true
+    }
   }
 
-  traffic {
-    latest_revision_weight = 100
+  template {
+
+    container {
+      name   = "frontend"
+      image  = "${azurerm_container_registry.main.login_server}/frontend:latest"
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      env {
+        name  = "BACKEND_URL"
+        value = "http://localhost:3000"
+      }
+    }
+
+    container {
+      name   = "backend"
+      image  = "${azurerm_container_registry.main.login_server}/backend:latest"
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      env {
+        name  = "DB_HOST"
+        value = azurerm_postgresql_flexible_server.main.fqdn
+      }
+
+      env {
+        name        = "DB_PASSWORD"
+        secret_name = "db-password-secret"
+      }
+    }
+    secret {
+      name                = "db-password-secret"
+      key_vault_secret_id = azurerm_key_vault_secret.db_password.id
+      identity            = azurerm_user_assigned_identity.main.id
+    }
   }
+
+  depends_on = [azurerm_role_assignment.acr_pull]
+}
+
+resource "azurerm_role_assignment" "kv_secrets_user" {
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_user_assigned_identity.main.principal_id
 }
