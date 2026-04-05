@@ -141,7 +141,7 @@ resource "azurerm_container_app" "voting_system" {
   resource_group_name          = azurerm_resource_group.main.name
   location                     = azurerm_resource_group.main.location
   revision_mode                = "Single"
-
+  log_analytics_workspace_id   = azurerm_log_analytics_workspace.main.id
   identity {
     type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.main.id]
@@ -274,4 +274,78 @@ resource "azurerm_role_assignment" "servicebus_data_owner" {
   scope                = azurerm_servicebus_namespace.main.id
   role_definition_name = "Azure Service Bus Data Owner"
   principal_id         = azurerm_user_assigned_identity.main.principal_id
+}
+
+resource "azurerm_web_application_firewall_policy" "main" {
+  name                = "${var.project_name}-waf-policy"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = "Global" # Front Door WAFs are global
+
+  managed_rules {
+    managed_rule_set {
+      type    = "OWASP"
+      version = "3.2"
+    }
+  }
+
+  policy_settings {
+    enabled                     = true
+    mode                        = "Prevention"
+    request_body_check          = true
+    max_request_body_size_in_kb = 128
+  }
+}
+resource "azurerm_cdn_frontdoor_profile" "main" {
+  name                = "${var.project_name}-frontdoor"
+  resource_group_name = azurerm_resource_group.main.name
+  sku_name            = "Standard_AzureFrontDoor"
+}
+
+resource "azurerm_cdn_frontdoor_endpoint" "main" {
+  name                     = "${var.project_name}-endpoint"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+}
+
+# The Origin (Your Container App)
+resource "azurerm_cdn_frontdoor_origin" "container_app" {
+  name                          = "container-app-origin"
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.main.id
+  enabled                       = true
+
+  certificate_name_check_enabled = true
+  host_name                      = azurerm_container_app.voting_system.ingress[0].fqdn
+  http_port                      = 80
+  https_port                     = 443
+  origin_host_header             = azurerm_container_app.voting_system.ingress[0].fqdn
+  priority                       = 1
+  weight                         = 1000
+}
+
+resource "azurerm_cdn_frontdoor_origin_group" "main" {
+  name                     = "origin-group"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+  session_affinity_enabled = false
+
+  load_balancing {
+    sample_size                 = 4
+    successful_samples_required = 3
+  }
+
+  health_probe {
+    path                = "/"
+    protocol            = "Https"
+    interval_in_seconds = 100
+  }
+}
+
+resource "azurerm_cdn_frontdoor_route" "main" {
+  name                          = "default-route"
+  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.main.id
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.main.id
+  cdn_frontdoor_origin_ids       = [azurerm_cdn_frontdoor_origin.container_app.id]
+
+  supported_protocols    = ["Http", "Https"]
+  patterns_to_match      = ["/*"]
+  forwarding_protocol    = "HttpsOnly"
+  link_to_default_domain = true
 }
