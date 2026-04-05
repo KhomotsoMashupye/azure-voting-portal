@@ -77,3 +77,13 @@ variable "acr_sku" {
   description = "SKU for Azure Container Registry."
   default     = "Basic"
 }
+variable "alert_email" {
+  description = "The email address to receive DevOps alerts."
+  type        = string
+}
+
+variable "location" {
+  description = "The Azure region for deployment."
+  type        = string
+  default     = "southafricanorth"
+}

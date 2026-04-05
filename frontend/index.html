@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>National Election Portal | Secure Vote</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="header">
+        <div class="badge">OFFICIAL ELECTION 2026</div>
+    </div>
+
+    <main class="container">
+        <section class="voting-card">
+            <h1>Cast Your National Ballot</h1>
+            <p class="subtitle">Please select one candidate. This action is final and encrypted.</p>
+            
+            <div class="candidate-grid">
+                <div class="candidate-option" onclick="selectCandidate(this, 'Candidate A')">
+                    <div class="avatar">A</div>
+                    <div class="info">
+                        <h3>Alliance Party</h3>
+                        <span>Leader: Khomotso Mashupye</span>
+                    </div>
+                    <div class="radio-circle"></div>
+                </div>
+
+                <div class="candidate-option" onclick="selectCandidate(this, 'Candidate B')">
+                    <div class="avatar blue">B</div>
+                    <div class="info">
+                        <h3>Beacon Unity</h3>
+                        <span>Leader: John Smith</span>
+                    </div>
+                    <div class="radio-circle"></div>
+                </div>
+            </div>
+
+            <button id="submit-btn" disabled onclick="castVote()">Submit Secure Vote</button>
+            <div id="status-msg"></div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

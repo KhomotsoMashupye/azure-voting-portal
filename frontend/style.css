@@ -1,0 +1,119 @@
+:root {
+    --primary: #1e293b;
+    --accent: #10b981;
+    --bg: #f8fafc;
+    --card: #ffffff;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg);
+    color: var(--primary);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.header {
+    width: 100%;
+    padding: 20px;
+    background: var(--primary);
+    display: flex;
+    justify-content: center;
+}
+
+.badge {
+    color: white;
+    border: 1px solid rgba(255,255,255,0.3);
+    padding: 5px 15px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+}
+
+.container {
+    max-width: 500px;
+    width: 90%;
+    margin-top: 50px;
+}
+
+.voting-card {
+    background: var(--card);
+    padding: 40px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+    text-align: center;
+}
+
+.subtitle {
+    color: #64748b;
+    font-size: 0.9rem;
+    margin-bottom: 30px;
+}
+
+.candidate-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+.candidate-option {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.candidate-option:hover {
+    border-color: var(--accent);
+    background: #f0fdf4;
+}
+
+.candidate-option.selected {
+    border-color: var(--accent);
+    background: #f0fdf4;
+}
+
+.avatar {
+    width: 45px;
+    height: 45px;
+    background: #fbbf24;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin-right: 15px;
+}
+
+.avatar.blue { background: #3b82f6; }
+
+.info { text-align: left; flex-grow: 1; }
+.info h3 { margin: 0; font-size: 1rem; }
+.info span { font-size: 0.8rem; color: #64748b; }
+
+#submit-btn {
+    width: 100%;
+    padding: 15px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#submit-btn:disabled {
+    background: #cbd5e1;
+    cursor: not-allowed;
+}
+
+#submit-btn:not(:disabled):hover {
+    background: #334155;
+}

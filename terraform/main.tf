@@ -164,7 +164,12 @@ resource "azurerm_container_app" "voting_system" {
   ingress {
     external_enabled = true
     target_port      = 80 
-    
+
+     traffic_weight {
+      percentage      = 100
+      latest_revision = true
+    }
+
     dynamic "ip_security_restriction" {
       for_each = data.azurerm_network_service_tags.afm.ipv4_cidrs
       content {
@@ -173,17 +178,9 @@ resource "azurerm_container_app" "voting_system" {
         ip_address_range = ip_security_restriction.value
       }
     }
-
-    traffic_weight {
-      percentage      = 100
-      latest_revision = true
-    }
   }
-    traffic_weight {
-      percentage      = 100
-      latest_revision = true
-    }
-  }
+   
+  
 
   template {
 
@@ -223,14 +220,16 @@ resource "azurerm_container_app" "voting_system" {
         secret_name = "db-password-secret"
       }
      }
+     
     secret {
       name                = "db-password-secret"
       key_vault_secret_id = azurerm_key_vault_secret.db_password.id
       identity            = azurerm_user_assigned_identity.main.id
     }
-  }
+  
 
   depends_on = [azurerm_role_assignment.acr_pull]
+}
 }
 
 resource "azurerm_role_assignment" "kv_secrets_user" {
@@ -381,4 +380,126 @@ resource "azurerm_cdn_frontdoor_route" "main" {
   patterns_to_match      = ["/*"]
   forwarding_protocol    = "HttpsOnly"
   link_to_default_domain = true
+}
+
+resource "azurerm_monitor_action_group" "main" {
+  name                = "${var.project_name}-action-group"
+  resource_group_name = azurerm_resource_group.main.name
+  short_name          = "votedevops"
+
+  email_receiver {
+    name          = "send-to-devops"
+    email_address = var.alert_email # Make sure to add this to your variables.tf
+  }
+}
+
+# DB CPU Alert (High Load)
+
+resource "azurerm_monitor_metric_alert" "db_cpu_high" {
+  name                = "postgres-cpu-alert"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_postgresql_flexible_server.main.id]
+  description         = "Action will be triggered when CPU is greater than 80%."
+
+  criteria {
+    metric_namespace = "Microsoft.DBforPostgreSQL/flexibleServers"
+    metric_name      = "cpu_percent"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 80
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main.id
+  }
+}
+
+# Service Bus Queue Alert (Backlog)
+
+resource "azurerm_monitor_metric_alert" "queue_backlog" {
+  name                = "vote-queue-backlog-alert"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_servicebus_queue.votes.id]
+  description         = "Alert if more than 1000 messages are stuck in the queue."
+
+  criteria {
+    metric_namespace = "Microsoft.ServiceBus/namespaces"
+    metric_name      = "ActiveMessages"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 1000
+  }
+
+  action {
+    action_group_id = azurerm_monitor_action_group.main.id
+  }
+}
+
+resource "azurerm_resource_group_policy_assignment" "location_lock" {
+  name                 = "location-lock"
+  resource_group_id    = azurerm_resource_group.main.id
+  policy_definition_id = "/providers/Microsoft.Authorization/policyDefinitions/e5615206-a40c-44be-b6db-0523d51c940b"
+  display_name         = "Restrict Allowed Locations"
+
+  parameters = <<PARAMETERS
+{
+  "listOfAllowedLocations": {
+    "value": ["${var.location}"]
+  }
+}
+PARAMETERS
+}
+
+resource "azurerm_container_app" "worker" {
+  name                         = "${var.project_name}-worker"
+  container_app_environment_id = azurerm_container_app_environment.main.id
+  resource_group_name          = azurerm_resource_group.main.name
+  location                     = azurerm_resource_group.main.location
+  revision_mode                = "Single"
+
+  template {
+    min_replicas = 1
+    max_replicas = 5
+
+    custom_scale_rule {
+      name             = "service-bus-scale"
+      custom_rule_type = "azure-servicebus"
+      metadata = {
+        queueName    = "vote-queue"
+        messageCount = "100" 
+      }
+    }
+
+    container {
+      name   = "worker"
+      image  = "${azurerm_container_registry.main.login_server}/backend:latest"
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      env {
+        name  = "DB_HOST"
+        value = azurerm_postgresql_flexible_server.main.fqdn
+      }
+      env {
+        name        = "DB_PASSWORD"
+        secret_name = "db-password-secret"
+      }
+      env {
+        name  = "SERVICE_BUS_CONNECTION_STRING"
+        value = azurerm_servicebus_namespace.main.default_primary_connection_string
+      }
+    }
+  }
+
+  
+  secret {
+    name                = "db-password-secret"
+    key_vault_secret_id = azurerm_key_vault_secret.db_password.id
+    identity            = azurerm_user_assigned_identity.main.id
+  }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.main.id]
+  }
 }

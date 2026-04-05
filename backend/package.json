@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@azure/service-bus": "^7.9.5",
+    "pg": "^8.20.0"
+  }
+}
